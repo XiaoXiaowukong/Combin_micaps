@@ -1,10 +1,10 @@
 import sqlite3
 import pandas as pd
 import struct
-
+import datetime
 def create_file(file,height,file_time):
     discriminator = struct.pack('4s','mdfs')
-    type = struct.pack('<h',21)
+    type = struct.pack('<h',125)
     description = struct.pack('100s','')
     level = struct.pack('<f',height)
     levelDescription = struct.pack('50s','M')
@@ -69,7 +69,7 @@ def write_head_2(file,station_num):
     file.write(winddirection_id)
     file.write(winddirection_type)
 
-    height_id = struct.pack('<h',3)
+    height_id = struct.pack('<h',3011)
     height_type = struct.pack('<h',5)
     file.write(height_id)
     file.write(height_type)
@@ -112,7 +112,8 @@ def write_vwp_data(file,station,windspeed,winddirection,height):
     file.write(winddrection_id)
     file.write(winddirection)
 
-    height_id = struct.pack('<h',3)
+    #height
+    height_id = struct.pack('<h',3011)
     height = struct.pack('<f',height)
     file.write(height_id)
     file.write(height)
@@ -131,20 +132,29 @@ def write_OOBS_data(file,horizontalv,horizontald,height):
     file.write(horizontald)
 
     #height
-    height_id = struct.pack('<h',3)
+    height_id = struct.pack('<h',3011)
     height = struct.pack('<f',height)
     file.write(height_id)
     file.write(height)
 
 if __name__ == '__main__':
+
+    now = datetime.datetime.now()
+    delta=datetime.timedelta(hours=1) 
+    now.strftime('%Y%m%d%H')
+    str_time1 = now.strftime('%Y%m%d%H')
+    str_time2 = (now-delta).strftime('%Y%m%d%H')
+
     with sqlite3.connect('combination.db') as con:
-        OOBS = pd.read_sql_query("SELECT * FROM OOBS", con=con)
-        vwp = pd.read_sql_query("SELECT * FROM vwp", con=con)
+        # OOBS = pd.read_sql_query("SELECT * FROM OOBS WHERE  time_2=%s OR time_2=%s"%(str_time1,str_time2), con=con)
+        # vwp = pd.read_sql_query("SELECT * FROM vwp WHERE time_2=%s OR time_2=%s"%(str_time1,str_time2), con=con)
+        OOBS = pd.read_sql_query("SELECT * FROM OOBS",con=con)
+        vwp = pd.read_sql_query("SELECT * FROM vwp",con=con)
 
     for i,group in vwp.groupby(['time_1','height']):
         print 'time_1:',i[0],' height:',i[1]
-        height = i[1]
-        file = open(str(i[0])+'_'+str(i[1])+'.bin','ab')
+        _,height = i
+        file = open('./output/'+str(i[0])+'_'+str(i[1])+'.bin','wb')
         
         OOBS_bysta = OOBS[OOBS.time_2==i[0][0:10]][OOBS.height==i[1]].groupby('station_code')
         vwp_bysta = group.groupby('station_code')
@@ -172,6 +182,6 @@ if __name__ == '__main__':
             write_head_3(file,i,lon,lat,4)
             for row in vwp_group.iterrows():
                 write_vwp_data(file,str(station),row[1]['windspeed'],row[1]['winddirection'],height)
-                print row[1]['level'],row[1]['windspeed'],row[1]['winddirection']
+                print row[1]['level'],row[1]['windspeed'],row[1]['winddirection'],height
             i+=1
-        break
+        

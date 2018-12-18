@@ -2,6 +2,7 @@ import struct
 import os
 import sys
 import datetime
+import sqlite3
 
 fileVWP = "C:\\Users\\Administrator\\Oracle\\vwp20180914"
 Height_Text = [300,600,900,1200,1500,1800,2100,2400,2700,3000,
@@ -26,6 +27,17 @@ tagPUPRadarDataPackage0A = '!' +'h'*4
 # with open('Z_RADR_I_Z9543_20180914075900_P_DOR_SA_VWP_20_NUL_NUL.543.bin','rb+') as file:
 
 def ReadVWP(filename,station_code,filedate):
+    '''
+    Read file write to _WID_list
+
+    Args:
+        filename:string of file name
+        station_code:string of station
+        filedata:
+
+    Returns:
+        a list of wind info(a dictionary)
+    '''
     file = open(filename,'rb+')
     PUPRadarHeader = file.read(18)
     try:
@@ -178,6 +190,9 @@ def ReadVWP(filename,station_code,filedate):
     return _WID_list
 
 def Cal_WID(v_Radar_VMP):
+    '''
+    find the index which lowest diff of height2 and height1 
+    '''
     v_WID_INFO = []
     nsize = len(v_Radar_VMP)
 
@@ -213,6 +228,7 @@ def Cal_WID(v_Radar_VMP):
         #                 i+=1
         #         i +=i
         dic = {}
+        # print v_WID_INFO
         for i in range(len(v_WID_INFO)):
             differ = abs(v_WID_INFO[i]['height2'] - v_WID_INFO[i]['height1'])
             if v_WID_INFO[i]['height2'] in dic.keys():
@@ -226,8 +242,16 @@ def Cal_WID(v_Radar_VMP):
         v_WID_INFO = [i for i in v_WID_INFO if v_WID_INFO.index(i) in dic.values()]
         # for i in v_WID_INFO:
         #     print i
-        
-
+        new_dic = {}
+        for i,WID in enumerate(v_WID_INFO):
+            diff = abs(WID['height1']-WID['height2'])
+            if WID['height1'] in new_dic.keys():
+                j = new_dic[WID['height1']]
+                if diff < abs(v_WID_INFO[j]['height1']-v_WID_INFO[j]['height2']):
+                    new_dic[WID['height1']] = i
+            else:
+                new_dic[WID['height1']] = i
+        new_v_WID_INFO = [i for i in v_WID_INFO if v_WID_INFO.index(i) in new_dic.values()]
             # for i in range(len(v_WID_INFO)):
             #     if v_WID_INFO[i]['height1'] ==  v_WID_INFO[i+1]['height1']:
                     # if (abs(v_WID_INFO[i]['height2']- v_WID_INFO[i]['height1'])) > (abs(v_WID_INFO[i+1]['height2']- v_WID_INFO[i+1]['height1'])):
@@ -240,9 +264,18 @@ def Cal_WID(v_Radar_VMP):
 
     else:
         return False
-    return v_WID_INFO
+    return new_v_WID_INFO
 
 def FindVWP(path):
+    '''Fetches files from path
+
+    Args:
+        path: string of path
+
+    Returns:
+        a list of path contains string"VWP" 
+
+    '''
     list_name = []
     try:
         lists = os.listdir(path)
@@ -257,8 +290,16 @@ def FindVWP(path):
             FindVWP(file_path)  
         else:  
             list_name.append(file_path)
-    return [i for i in list_name if i.find('VWP')!= -1]
 
+    now = datetime.datetime.now()
+    delta=datetime.timedelta(hours=1) 
+    now.strftime('%Y%m%d%H')
+    str_time1 = now.strftime('%Y%m%d%H')
+    str_time2 = (now-delta).strftime('%Y%m%d%H')
+
+
+    # return [i for i in list_name if i.find('VWP')!= -1 and i.find(str_time1)!= -1 and i.find(str_time2)!= -1]
+    return [i for i in list_name if i.find('VWP')!= -1]
 def DealVWP(filepath):
     # filefoder = FindVWP(fileVWP)
     # if len(filefoder) == 0:
@@ -381,18 +422,16 @@ def filter_vwp(filefolder):
     files = [filefolder[i] for i in index]
     return files
 
-import pickle
-import sqlite3
-
 if __name__ == '__main__':
     conn = sqlite3.connect('combination.db')
     cursor  = conn.cursor()
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='%s'"% 'vwp')
-    if len(cursor.fetchall()) == 0:
-        cursor.execute('create table vwp(time_1 vachar(20),time_2 varchar(10),level int,station_code varchar(10),height int,windspeed float,winddirection int,latitude float,longitude float)')
+    if not cursor.fetchall():
+        cursor.execute('create table vwp(time_1 vachar(20),time_2 varchar(10),level int,station_code varchar(10),height int,windspeed float,winddirection int,latitude float,longitude float,primary key(time_1,station_code,height))')
         conn.commit()
     filefoder = FindVWP(fileVWP)
     files = filter_vwp(filefoder)
+    # print len(files),len(list(set(files)))
     index = 0
     for file in files:
         print index
@@ -400,7 +439,10 @@ if __name__ == '__main__':
         index +=1
         if data is not None:
             for i in data:
-                cursor.execute("insert into vwp(time_1,time_2,level,station_code,height,windspeed,winddirection,latitude,longitude) values ('%s','%s','%d','%s','%d','%f','%f','%f','%f')"%(file_time,file_time[0:10],i['level'],i['station_code'],i['height'],i['windspeed'],i['winddirection'],i['latitude'],i['longitude']))
+                try:
+                    cursor.execute("insert into vwp(time_1,time_2,level,station_code,height,windspeed,winddirection,latitude,longitude) values ('%s','%s','%d','%s','%d','%f','%f','%f','%f')"%(file_time,file_time[0:10],i['level'],i['station_code'],i['height'],i['windspeed'],i['winddirection'],i['latitude'],i['longitude']))
+                except:
+                    print 'data duplication'
             conn.commit()
     cursor.close()
     conn.close()
