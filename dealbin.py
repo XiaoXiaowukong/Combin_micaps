@@ -3,8 +3,10 @@ import os
 import sys
 import datetime
 import sqlite3
+import time
+from config import logger
 
-fileVWP = "C:\\Users\\Administrator\\Oracle\\vwp20180914"
+path = "./VWP"
 Height_Text = [300,600,900,1200,1500,1800,2100,2400,2700,3000,
 					  3400,3700,4000,4300,4600,4900,5200,5500,5800,6100,	
 					 6700, 7300,7600,7900,8500,9100,10700,12200,13700,15200]
@@ -44,7 +46,7 @@ def ReadVWP(filename,station_code,filedate):
         productCode,date,time,length,stationID,destinationID,blockCount = struct.unpack(tagVMP_RadarProductHeaderStructure,PUPRadarHeader)
     except ValueError:
         file.close()
-        print 'PUPRadarHeader ValueError'
+        logger.error('%s:PUPRadarHeader ValueError'%filename)
     PUPRadarDescription = file.read(102)
     levelThreshold=[0 for x in range(0, 16)]  
     try:
@@ -52,7 +54,7 @@ def ReadVWP(filename,station_code,filedate):
         # print latitude,longitude
     except:
         file.close()
-        print 'PUPRadarHeader ValueError'
+        logger.error('%s:PUPRadarHeader ValueError'%filename)
         return
     if productCode == 48:
         PUPRadarSymbol= file.read(10)
@@ -60,7 +62,7 @@ def ReadVWP(filename,station_code,filedate):
             blockDivider,blockID,blockSize,layerCount = struct.unpack(tagVWP_Symbol,PUPRadarSymbol)
         except:
             file.close()
-            print 'PUPRadarSymbol ValueError'
+            logger.error('%s:PUPRadarSymbol ValueError'%filename)
             return
     for i in range(layerCount):
         try:
@@ -68,7 +70,7 @@ def ReadVWP(filename,station_code,filedate):
             layerDivider,layerCount = struct.unpack(tagVMP_PUB_LAYER,RADAR_Layer)
         except:
             file.close()
-            print 'RADAR_Layer ValueError'
+            logger.error('%s RADAR_Layer %d ValueError'%(filename,i))
             return
         if layerCount == 1:
             layerCount = blockSize - 16
@@ -84,7 +86,7 @@ def ReadVWP(filename,station_code,filedate):
                     packageCode,newblocksize= struct.unpack(tagVMP_PUB_BLOCK,RADAR_Block)
                 except:
                     file.close()
-                    print 'RADAR_Block ValueError'
+                    logger.error('RADAR_Block ValueError')
                     return
     #             print packageCode,newblocksize
     #             a = struct.unpack('s',hex(packageCode))
@@ -282,7 +284,7 @@ def FindVWP(path):
     except:
         print 'error filepath'
         sys.exit(1)
-    if len(lists) == 0:
+    if not lists:
         return
     for file in lists:
         file_path = os.path.join(path, file)  
@@ -291,22 +293,34 @@ def FindVWP(path):
         else:  
             list_name.append(file_path)
 
-    now = datetime.datetime.now()
+    # first filter:reduce traversal 
+
+    now = datetime.datetime.now() - datetime.timedelta(hours=8) 
     delta=datetime.timedelta(hours=1) 
     now.strftime('%Y%m%d%H')
     str_time1 = now.strftime('%Y%m%d%H')
     str_time2 = (now-delta).strftime('%Y%m%d%H')
 
+    first = [i for i in list_name if i.find('VWP')!= -1 and i.find(str_time1)!= -1 or i.find(str_time2)!= -1]
 
-    # return [i for i in list_name if i.find('VWP')!= -1 and i.find(str_time1)!= -1 and i.find(str_time2)!= -1]
-    return [i for i in list_name if i.find('VWP')!= -1]
+    final = []
+    for file in first:
+        time = file.split('_')[4]
+        time_d = datetime.datetime(int(time[0:4]),int(time[4:6]),int(time[6:8]),int(time[8:10]),int(time[10:12]))
+        delta = now - time_d
+        if delta.days == 0 and delta.seconds <= 6*60:
+            final.append(file)
+    # print final
+
+    return first
+    
 def DealVWP(filepath):
     # filefoder = FindVWP(fileVWP)
     # if len(filefoder) == 0:
     #     return
     filefoders = filepath
     filewithno = filefoders.split('.')
-    file_info = filewithno[0].split('_')
+    file_info = filewithno[1].split('_')
     station_code = len(file_info[3])
     station_time = len(file_info[4])
     if station_code==5 and station_time==14:
@@ -356,7 +370,7 @@ def DealVWP(filepath):
 def Dealtime(filepath):
     filefoders = filepath
     filewithno = filefoders.split('.')
-    file_info = filewithno[0].split('_')
+    file_info = filewithno[1].split('_')
     station_code = len(file_info[3])
     station_time = len(file_info[4])
     if station_code==5 and station_time==14:
@@ -410,80 +424,60 @@ def Dealtime(filepath):
     return file_time,interval.days*3600*24 +interval.seconds
 
 def filter_vwp(filefolder):
-    dic = {}
-    for i,filename in enumerate(filefoder):
-        time,interval = Dealtime(filename)
-        if time not in dic.keys():
-            dic[time] = [i,interval]
+    sdic = {}
+    for filename in filefolder:
+        sta = filename.split('.')[1].split('_')[3]
+        if sta not in sdic.keys():
+            sdic[sta] = [filename]
         else:
-            if interval < dic[time][1]:
+            sdic[sta].append(filename)
+    # print sdic
+    files = []
+    for stafiles in sdic.values():
+        dic = {}
+        # print 'stafiles',len(stafiles)
+        for i,filename in enumerate(stafiles):
+            time,interval = Dealtime(filename)
+            if time not in dic.keys():
                 dic[time] = [i,interval]
-    index = [dic[i][0] for i in dic.keys()]
-    files = [filefolder[i] for i in index]
+            else:
+                if interval < dic[time][1]:
+                    dic[time] = [i,interval]
+        index = [dic[i][0] for i in dic.keys()]
+        files += [stafiles[i] for i in index]
     return files
 
-if __name__ == '__main__':
+def Store_indatabase(path):
     conn = sqlite3.connect('combination.db')
     cursor  = conn.cursor()
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='%s'"% 'vwp')
     if not cursor.fetchall():
-        cursor.execute('create table vwp(time_1 vachar(20),time_2 varchar(10),level int,station_code varchar(10),height int,windspeed float,winddirection int,latitude float,longitude float,primary key(time_1,station_code,height))')
+        cursor.execute('create table vwp(time_1 datetime,time_2 varchar(10),level int,station_code varchar(10),height int,windspeed float,winddirection int,latitude float,longitude float,primary key(time_1,station_code,height))')
         conn.commit()
-    filefoder = FindVWP(fileVWP)
+        logger.info('create table vwp')
+    filefoder = FindVWP(path)
     files = filter_vwp(filefoder)
-    # print len(files),len(list(set(files)))
+    print len(files)
     index = 0
     for file in files:
-        print index
+        # print index
         data,file_time = DealVWP(file)
-        index +=1
+        new_ft = '{year}-{month}-{day}-{hour}-{minute}-{second}'.format(year=file_time[0:4],month=file_time[4:6],day=file_time[6:8],hour=file_time[8:10],minute=file_time[10:12],second=file_time[12:14])
+
+        # index +=1
         if data is not None:
             for i in data:
                 try:
-                    cursor.execute("insert into vwp(time_1,time_2,level,station_code,height,windspeed,winddirection,latitude,longitude) values ('%s','%s','%d','%s','%d','%f','%f','%f','%f')"%(file_time,file_time[0:10],i['level'],i['station_code'],i['height'],i['windspeed'],i['winddirection'],i['latitude'],i['longitude']))
+                    cursor.execute("insert into vwp(time_1,time_2,level,station_code,height,windspeed,winddirection,latitude,longitude) values ('%s','%s','%d','%s','%d','%f','%f','%f','%f')"%(new_ft,file_time[0:10],i['level'],i['station_code'],i['height'],i['windspeed'],i['winddirection'],i['latitude'],i['longitude']))
                 except:
-                    print 'data duplication'
-            conn.commit()
+                    pass
+        conn.commit()
+    logger.info('store in table vwp finish')
     cursor.close()
     conn.close()
 
-    
-    
-    
-    # print type(data[0]['obs_time'])
-    # print type(data[0]['level'])
-    # print type(data[0]['station_code'])
-    # print type(data[0]['height'])
-    # print type(data[0]['windspeed'])
-    # print type(data[0]['winddirection'])
-    # print data[0]
-    # for i in filefoder:
-    #     station = i.split('_')[3]
-    #     print station
-    #     data,file_time = DealVWP(i)
-    #     print data
-    #     break
+def dealbin():
+    while True:
+        Store_indatabase(path)
+        time.sleep(5*60)
 
-
-
-        # if os.path.exists('stations_'+file_time+'.txt'):
-        #     with open('stations_'+file_time+'.txt','rb') as file:
-        #         stations = pickle.load(file)
-        #         if station in stations:
-        #             
-        #             with open(file_time+'.bin','wb') as file:
-        #                 create_record(file,data)
-        #         else:
-        #             stations.append(station)
-        #             with open('stations_'+file_time+'.txt','wb') as file:
-        #                 pickle.dump(stations,file)
-        #                
-        #             with open(file_time+'.bin','wb') as file:
-        #                 create_record(file,data)
-        # else:
-        #     with open('stations_'+file_time+'.txt','wb') as file:
-        #         stations = [station]
-        #         pickle.dump(stations,file)
-        #     with open(file_time+'.bin','wb') as file:
-        #         create_file(file,data,file_time)
-        # print file_time

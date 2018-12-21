@@ -2,6 +2,9 @@ import sqlite3
 import pandas as pd
 import struct
 import datetime
+import time
+from config import logger
+
 def create_file(file,height,file_time):
     discriminator = struct.pack('4s','mdfs')
     type = struct.pack('<h',125)
@@ -9,11 +12,11 @@ def create_file(file,height,file_time):
     level = struct.pack('<f',height)
     levelDescription = struct.pack('50s','M')
     year = struct.pack('<i',int(file_time[0:4]))
-    month = struct.pack('<i',int(file_time[4:6]))
-    day = struct.pack('<i',int(file_time[6:8]))
-    hour = struct.pack('<i',int(file_time[8:10]))
-    minute = struct.pack('<i',int(file_time[10:12]))
-    second = struct.pack('<i',int(file_time[12:14]))
+    month = struct.pack('<i',int(file_time[5:7]))
+    day = struct.pack('<i',int(file_time[8:10]))
+    hour = struct.pack('<i',int(file_time[11:13]))
+    minute = struct.pack('<i',int(file_time[14:16]))
+    second = struct.pack('<i',int(file_time[17:19]))
     timezone = struct.pack('<i',8)
     file.write(discriminator)
     file.write(type)
@@ -118,7 +121,7 @@ def write_vwp_data(file,station,windspeed,winddirection,height):
     file.write(height_id)
     file.write(height)
     
-def write_OOBS_data(file,horizontalv,horizontald,height):
+def write_OOBS_data(file,station,horizontalv,horizontald,height):
     # horizontalv
     horizontalv_id = struct.pack('<h',203)
     horizontalv = struct.pack('<f',horizontalv)
@@ -137,51 +140,67 @@ def write_OOBS_data(file,horizontalv,horizontald,height):
     file.write(height_id)
     file.write(height)
 
-if __name__ == '__main__':
+    str_station_name_id = struct.pack('<h',21)
+    str_station_name = struct.pack('10s',station)
+    str_station_len = struct.pack('<h',10)
+    file.write(str_station_name_id)
+    file.write(str_station_len)
+    file.write(str_station_name)
 
-    now = datetime.datetime.now()
-    delta=datetime.timedelta(hours=1) 
-    now.strftime('%Y%m%d%H')
-    str_time1 = now.strftime('%Y%m%d%H')
-    str_time2 = (now-delta).strftime('%Y%m%d%H')
-
-    with sqlite3.connect('combination.db') as con:
-        # OOBS = pd.read_sql_query("SELECT * FROM OOBS WHERE  time_2=%s OR time_2=%s"%(str_time1,str_time2), con=con)
-        # vwp = pd.read_sql_query("SELECT * FROM vwp WHERE time_2=%s OR time_2=%s"%(str_time1,str_time2), con=con)
-        OOBS = pd.read_sql_query("SELECT * FROM OOBS",con=con)
-        vwp = pd.read_sql_query("SELECT * FROM vwp",con=con)
-
+def write():
+    try:
+        with sqlite3.connect('combination.db') as con:
+            now = datetime.datetime.now() - datetime.timedelta(hours = 8)
+            vwp_time = now - datetime.timedelta(minutes = 6)
+            vs = vwp_time.strftime('%Y-%m-%d %H:%M')
+            OOBS_time = now - datetime.timedelta(hours = 1)
+            os = OOBS_time.strftime('%Y-%m-%d %H:%M')
+            OOBS = pd.read_sql_query("select * from OOBS where time_2 > datetime('%s')" % os, con=con)
+            vwp = pd.read_sql_query("select * from vwp where time_1 > datetime('%s')"% vs, con=con)
+    except:
+        logger.warning("can't connect db")
+        time.sleep(5)
+        return
     for i,group in vwp.groupby(['time_1','height']):
         print 'time_1:',i[0],' height:',i[1]
         _,height = i
         file = open('./output/'+str(i[0])+'_'+str(i[1])+'.bin','wb')
+
+        OOBS_t = datetime.datetime.strptime(i[0][0:13],"%Y-%m-%d-%H")-datetime.timedelta(hours=1)
+        OOBS_st = OOBS_t.strftime("%Y-%m-%d-%H")
         
-        OOBS_bysta = OOBS[OOBS.time_2==i[0][0:10]][OOBS.height==i[1]].groupby('station_code')
+        OOBS_bysta = OOBS[OOBS.time_2==OOBS_st][OOBS.height==i[1]].groupby('station_code')
         vwp_bysta = group.groupby('station_code')
-        sta_num = len(list(set(list(OOBS[OOBS.time_2==i[0][0:10]][OOBS.height==i[1]]['station_code'])+list(group['station_code']))))
+        sta_num = len(list(set(list(OOBS[OOBS.time_2==OOBS_st][OOBS.height==i[1]]['station_code'])+list(group['station_code']))))
         stanum = 1
-        print 'sta_num',sta_num
         create_file(file,i[1],i[0])
         write_head_2(file,sta_num)
+        x = 0
         for station,OOBS_group in OOBS_bysta:
             lat = float(OOBS_group[OOBS_group.station_code==station].iloc[0]['latitude'])
             lon = float(OOBS_group[OOBS_group.station_code==station].iloc[0]['longitude'])
             OOBS_num = len(OOBS_group[OOBS_group.station_code==station])
-            write_head_3(file,station,lat,lon,3)
+            write_head_3(file,x,lat,lon,4)
             for row in OOBS_group.iterrows():
-                write_OOBS_data(file,row[1]['horizontalv'],row[1]['horizontald'],height)
-                print row[1]['horizontalv'],row[1]['horizontald']
-                
-        i = 0
+                write_OOBS_data(file,str(station),row[1]['horizontalv'],row[1]['horizontald'],height)
+                # print row[1]['horizontalv'],row[1]['horizontald']
+            x+=1    
         for station,vwp_group in vwp_bysta:
             lat = float(vwp_group[vwp_group.station_code==station].iloc[0]['latitude'])/1000
             lon = float(vwp_group[vwp_group.station_code==station].iloc[0]['longitude'])/1000
-            print lat,lon
             vwp_num = len(vwp_group[vwp_group.station_code==station])
-            print 'station',type(station)
-            write_head_3(file,i,lon,lat,4)
+            write_head_3(file,x,lon,lat,4)
             for row in vwp_group.iterrows():
                 write_vwp_data(file,str(station),row[1]['windspeed'],row[1]['winddirection'],height)
-                print row[1]['level'],row[1]['windspeed'],row[1]['winddirection'],height
-            i+=1
+                # print row[1]['level'],row[1]['windspeed'],row[1]['winddirection'],height
+            x+=1
+    logger.info('write to file micaps finish')
+
+def write2micaps():
+    while True:
+        if time.localtime().tm_min % 6 ==0:
+            write()
+        else:
+            time.sleep(60)
+
         

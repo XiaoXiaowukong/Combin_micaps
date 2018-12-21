@@ -2,7 +2,10 @@ import os
 import pandas as pd
 import sqlite3
 import datetime
+import time
+from config import logger
 
+path = './OOBS/'
 Height_WID = [500,1000,1500,2000,2500,3000,3500,4000,4500,5000,
 					5500,6000,6500,7000,7500,8000,8500,9000,9500,10000]
 
@@ -15,14 +18,14 @@ def str_path(path,string):
         else:  
             list_name.append(file_path)
 
-    now = datetime.datetime.now()
+    now = datetime.datetime.now() - datetime.timedelta(hours=8)
     delta=datetime.timedelta(hours=1) 
     now.strftime('%Y%m%d%H')
     str_time1 = now.strftime('%Y%m%d%H')
     str_time2 = (now-delta).strftime('%Y%m%d%H')
 
-    # return [i for i in list_name if i.find(string)!= -1 and i.find(str_time1)!= -1 and i.find(str_time2)!= -1]
-    return [i for i in list_name if i.find(string)!= -1]
+    return [i for i in list_name if i.find(string)!= -1 and i.find(str_time1)!= -1 or i.find(str_time2)!= -1]
+    # return [i for i in list_name if i.find(string)!= -1]
 
 def data_from_txt(filepath):
     data = pd.read_csv(filepath, sep=' ', names=['height','horizontald','horizontalv'])
@@ -66,24 +69,28 @@ def Store_indatabase(path):
     cursor  = conn.cursor()
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='%s'"% 'OOBS')
     if not cursor.fetchall():
-        cursor.execute('create table OOBS(time_2 varchar(10),station_code varchar(10),height int,horizontalv float,horizontald float,latitude float,longitude float,primary key(time_2,station_code,height))')
+        cursor.execute('create table OOBS(time_2 datetime,station_code varchar(10),height int,horizontalv float,horizontald float,latitude float,longitude float,primary key(time_2,station_code,height))')
         conn.commit()
+        logger.info('create Table OOBS')
     j = 0
     for i in file_list:
-        print j
+        # print j
         time = i.split('_')[-1].split('.')[0][0:10]
+        new_ft = '{year}-{month}-{day}-{hour}'.format(year=time[0:4],month=time[4:6],day=time[6:8],hour=time[8:10])
         dic,station,latitude,longitude = data_from_txt(i)
         for key in dic.keys():
             try:
-                cursor.execute("insert into OOBS(time_2,station_code,height,horizontalv,horizontald,latitude,longitude) values('%s','%s','%d','%f','%f','%f','%f')"%(time,station,key,dic[key]['horizontalv'],dic[key]['horizontald'],latitude,longitude))
+                cursor.execute("insert into OOBS(time_2,station_code,height,horizontalv,horizontald,latitude,longitude) values('%s','%s','%d','%f','%f','%f','%f')"%(new_ft,station,key,dic[key]['horizontalv'],dic[key]['horizontald'],latitude,longitude))
             except:
-                print 'data duplication'
+                pass
         conn.commit()
         j+=1
-        
     cursor.close()
     conn.close()
+    logger.info('store in Table OOBS finish')
 
-if __name__ == '__main__':
-    path = 'C:/20180914/'
-    Store_indatabase(path)
+def OOBS():
+    while True:
+        Store_indatabase(path)
+        time.sleep(5*60)
+    
