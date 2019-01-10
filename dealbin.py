@@ -302,6 +302,13 @@ def FindVWP(path):
     str_time2 = (now-delta).strftime('%Y%m%d%H')
 
     first = [i for i in list_name if i.find('VWP')!= -1 and i.find(str_time1)!= -1 or i.find(str_time2)!= -1]
+    remove_file = [i for i in list_name if i not in first ]
+    for i in remove_file:
+        try:
+            os.remove(i)
+        except:
+            pass
+
 
     final = []
     for file in first:
@@ -462,7 +469,7 @@ def Store_indatabase(path):
     for file in files:
         # print index
         data,file_time = DealVWP(file)
-        new_ft = '{year}-{month}-{day}-{hour}-{minute}-{second}'.format(year=file_time[0:4],month=file_time[4:6],day=file_time[6:8],hour=file_time[8:10],minute=file_time[10:12],second=file_time[12:14])
+        new_ft = '{year}-{month}-{day} {hour}:{minute}:{second}'.format(year=file_time[0:4],month=file_time[4:6],day=file_time[6:8],hour=file_time[8:10],minute=file_time[10:12],second=file_time[12:14])
 
         # index +=1
         if data is not None:
@@ -478,6 +485,9 @@ def Store_indatabase(path):
 
 def dealbin():
     while True:
-        Store_indatabase(path)
-        time.sleep(5*60)
+        if time.localtime().tm_min % 6 ==5:
+            Store_indatabase(path)
+            time.sleep(60)
+        else:
+            time.sleep(60)
 

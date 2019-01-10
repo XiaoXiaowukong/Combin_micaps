@@ -150,24 +150,31 @@ def write_OOBS_data(file,station,horizontalv,horizontald,height):
 def write():
     try:
         with sqlite3.connect('combination.db') as con:
+            cursor  = con.cursor()
+            cursor.execute("delete from vwp where time_1 < datetime('now','-5 hours')")
+            cursor.execute("delete from OOBS where time_2 < datetime('now','-5 hours')")
+            con.commit()
+            logger.info('Delete -1 days data')
+            
             now = datetime.datetime.now() - datetime.timedelta(hours = 8)
-            vwp_time = now - datetime.timedelta(minutes = 6)
+            vwp_time = now - datetime.timedelta(minutes = 8)
             vs = vwp_time.strftime('%Y-%m-%d %H:%M')
             OOBS_time = now - datetime.timedelta(hours = 1)
             os = OOBS_time.strftime('%Y-%m-%d %H:%M')
-            OOBS = pd.read_sql_query("select * from OOBS where time_2 > datetime('%s')" % os, con=con)
-            vwp = pd.read_sql_query("select * from vwp where time_1 > datetime('%s')"% vs, con=con)
+            OOBS = pd.read_sql_query("select * from OOBS where time_2 > datetime('now','-2 hours')", con=con)
+            vwp = pd.read_sql_query("select * from vwp where time_1 > datetime('now','-8 minutes')", con=con)
+            cursor.close()
     except:
         logger.warning("can't connect db")
         time.sleep(5)
         return
     for i,group in vwp.groupby(['time_1','height']):
-        print 'time_1:',i[0],' height:',i[1]
+        #print 'time_1:',i[0],' height:',i[1]
         _,height = i
-        file = open('./output/'+str(i[0])+'_'+str(i[1])+'.bin','wb')
+        file = open('./output/'+str(i[0]).replace(':','-') + '_' + str(i[1])+'.bin','wb')
 
-        OOBS_t = datetime.datetime.strptime(i[0][0:13],"%Y-%m-%d-%H")-datetime.timedelta(hours=1)
-        OOBS_st = OOBS_t.strftime("%Y-%m-%d-%H")
+        OOBS_t = datetime.datetime.strptime(i[0][0:13],"%Y-%m-%d %H")-datetime.timedelta(hours=1)
+        OOBS_st = OOBS_t.strftime("%Y-%m-%d %H")
         
         OOBS_bysta = OOBS[OOBS.time_2==OOBS_st][OOBS.height==i[1]].groupby('station_code')
         vwp_bysta = group.groupby('station_code')
