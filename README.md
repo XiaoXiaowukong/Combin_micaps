@@ -1,4 +1,5 @@
 # Combin_micaps
+将风廓线雷达中的数据进行整合，写入micaps4文件中，进行显示和服务
 
 ## dealbin.py
 处理vwp文件，将数据存入数据库中
